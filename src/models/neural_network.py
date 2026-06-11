@@ -84,8 +84,8 @@ class NeuralNetworkIDS(BaseIDSModel):
 
         optimizer = torch.optim.Adam(
             self.net.parameters(),
-            lr=self.cfg["learning_rate"],
-            weight_decay=self.cfg["weight_decay"],
+            lr=float(self.cfg["learning_rate"]),
+            weight_decay=float(self.cfg["weight_decay"]),
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer, patience=3, factor=0.5

@@ -442,7 +442,6 @@ elif page == "🔴 Live Detection":
 
             # Summary
             attack_count = df["is_attack"].sum()
-            normal_count = len(df) - attack_count
             attack_pct = attack_count / len(df) * 100
 
             m1, m2, m3 = placeholder.columns(3)

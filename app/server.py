@@ -16,17 +16,18 @@ import sys
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
+import pandas as pd
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+
+# sys.path must be set before importing local src modules
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-
-from src.models import EnsembleIDS, NeuralNetworkIDS, RandomForestIDS, XGBoostIDS
-from src.preprocessing import NSLKDDPreprocessor
-import numpy as np
-import pandas as pd
+from src.models import EnsembleIDS, NeuralNetworkIDS, RandomForestIDS, XGBoostIDS  # noqa: E402
+from src.preprocessing import NSLKDDPreprocessor  # noqa: E402
 
 app = FastAPI(
     title="AI Intrusion Detection System API",
