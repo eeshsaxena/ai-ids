@@ -7,6 +7,7 @@ import os
 import time
 
 import numpy as np
+import yaml
 from rich.console import Console
 from rich.table import Table
 from sklearn.model_selection import StratifiedKFold, cross_val_score
@@ -64,7 +65,6 @@ def train_models(
     model_keys = ["rf", "xgb", "nn"] if model_filter == "all" else [model_filter]
     all_results: dict = {}
 
-    import yaml
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
     n_cv_folds = cfg.get("training", {}).get("cv_folds", 5)

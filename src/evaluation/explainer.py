@@ -58,7 +58,6 @@ def explain_rf_xgb(
 
     # SHAP summary (beeswarm) for top features
     fig2, ax2 = plt.subplots(figsize=(10, 8))
-    vals = mean_abs[:, idx] if len(mean_abs.shape) == 2 else mean_abs
     shap.summary_plot(
         mean_abs[:, idx] if isinstance(shap_values, list) else shap_values[:, idx],
         sample[:, idx],

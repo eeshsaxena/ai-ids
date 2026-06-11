@@ -43,12 +43,17 @@ examples:
     # detect
     d = sub.add_parser("detect", help="Run detection on new CSV data")
     d.add_argument("--input", required=True, help="Input CSV (NSL-KDD format)")
-    d.add_argument("--model", choices=["rf", "xgb", "nn"], default="rf")
+    d.add_argument("--model", choices=["rf", "xgb", "nn", "ensemble"], default="rf")
     d.add_argument("--task", choices=["binary", "multiclass"], default="multiclass")
     d.add_argument("--output", default=None, help="Output CSV path")
 
     # dashboard
     sub.add_parser("dashboard", help="Launch Streamlit dashboard")
+
+    # api
+    a = sub.add_parser("api", help="Start FastAPI REST server")
+    a.add_argument("--host", default="0.0.0.0")
+    a.add_argument("--port", type=int, default=8000)
 
     # simulate
     s = sub.add_parser("simulate", help="Generate synthetic traffic CSV for testing")
@@ -76,6 +81,15 @@ examples:
     elif args.cmd == "dashboard":
         subprocess.run(
             [sys.executable, "-m", "streamlit", "run", "app/dashboard.py"],
+            check=True,
+        )
+
+    elif args.cmd == "api":
+        subprocess.run(
+            [
+                sys.executable, "-m", "uvicorn", "app.server:app",
+                "--host", args.host, "--port", str(args.port), "--reload",
+            ],
             check=True,
         )
 

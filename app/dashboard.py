@@ -372,12 +372,24 @@ elif page == "🔴 Live Detection":
 
     with col1:
         st.subheader("Configuration")
-        model_choice = st.selectbox("Model", ["Random Forest", "XGBoost", "Neural Network"])
+        model_choice = st.selectbox(
+            "Model",
+            ["Random Forest", "XGBoost", "Neural Network", "Ensemble (RF+XGB+NN)"],
+        )
         task_choice = st.selectbox("Task", ["multiclass", "binary"])
         n_packets = st.slider("Packets to simulate", 10, 500, 100)
+
+        st.markdown("**Or upload your own CSV**")
+        uploaded_csv = st.file_uploader("NSL-KDD format CSV", type=["csv"], label_visibility="collapsed")
+
         auto_refresh = st.toggle("Auto-refresh (every 3s)", value=False)
 
-        model_map = {"Random Forest": "rf", "XGBoost": "xgb", "Neural Network": "nn"}
+        model_map = {
+            "Random Forest": "rf",
+            "XGBoost": "xgb",
+            "Neural Network": "nn",
+            "Ensemble (RF+XGB+NN)": "ensemble",
+        }
         model_key = model_map[model_choice]
 
         run_btn = st.button("▶ Run Detection", type="primary", use_container_width=True)
@@ -388,11 +400,8 @@ elif page == "🔴 Live Detection":
 
         def run_detection():
             prep_path = ROOT / "models" / "saved" / "preprocessor.pkl"
-            ext = ".pt" if model_key == "nn" else ".pkl"
-            model_path = ROOT / "models" / "saved" / f"{model_key}_{task_choice}{ext}"
-
-            if not prep_path.exists() or not model_path.exists():
-                placeholder.error("Models not found. Run training first.")
+            if not prep_path.exists():
+                placeholder.error("Preprocessor not found. Run `python main.py train` first.")
                 return
 
             from src.detection.detector import simulate_traffic
@@ -400,17 +409,25 @@ elif page == "🔴 Live Detection":
 
             prep = NSLKDDPreprocessor.load(str(prep_path))
 
-            if model_key == "rf":
-                from src.models import RandomForestIDS
-                model = RandomForestIDS.load(str(model_path))
-            elif model_key == "xgb":
-                from src.models import XGBoostIDS
-                model = XGBoostIDS.load(str(model_path))
-            else:
-                from src.models import NeuralNetworkIDS
-                model = NeuralNetworkIDS.load(str(model_path))
+            # Load model via unified loader (handles ensemble too)
+            try:
+                from src.detection.detector import _load_model as _det_load
+                model = _det_load(model_key, task_choice, "config/config.yaml")
+            except (FileNotFoundError, Exception) as e:
+                placeholder.error(f"Model not found or failed to load: {e}\nRun `python main.py train` first.")
+                return
 
-            df = simulate_traffic(n_packets)
+            # Use uploaded CSV if provided, otherwise simulate
+            if uploaded_csv is not None:
+                try:
+                    df = pd.read_csv(uploaded_csv)
+                    st.info(f"Using uploaded file: {uploaded_csv.name} ({len(df)} rows)")
+                except Exception as e:
+                    placeholder.error(f"Failed to read CSV: {e}")
+                    return
+            else:
+                df = simulate_traffic(n_packets)
+
             X = prep.transform(df)
             preds = model.predict(X)
             probs = model.predict_proba(X)

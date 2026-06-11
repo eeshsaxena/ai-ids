@@ -62,10 +62,25 @@ class NeuralNetworkIDS(BaseIDSModel):
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         self._classes = np.unique(y)
 
-        Xt = torch.tensor(X, dtype=torch.float32)
-        yt = torch.tensor(y, dtype=torch.long)
-        dataset = TensorDataset(Xt, yt)
-        loader = DataLoader(dataset, batch_size=self.cfg["batch_size"], shuffle=True)
+        # Use 10% of training data as a held-out validation set for early stopping
+        val_ratio = self.cfg.get("validation_split", 0.1)
+        n_val = max(1, int(len(X) * val_ratio))
+        idx = np.random.default_rng(42).permutation(len(X))
+        train_idx, val_idx = idx[n_val:], idx[:n_val]
+
+        X_tr, y_tr = X[train_idx], y[train_idx]
+        X_val, y_val = X[val_idx], y[val_idx]
+
+        train_loader = DataLoader(
+            TensorDataset(
+                torch.tensor(X_tr, dtype=torch.float32),
+                torch.tensor(y_tr, dtype=torch.long),
+            ),
+            batch_size=self.cfg["batch_size"],
+            shuffle=True,
+        )
+        X_val_t = torch.tensor(X_val, dtype=torch.float32).to(self.device)
+        y_val_t = torch.tensor(y_val, dtype=torch.long).to(self.device)
 
         optimizer = torch.optim.Adam(
             self.net.parameters(),
@@ -73,29 +88,31 @@ class NeuralNetworkIDS(BaseIDSModel):
             weight_decay=self.cfg["weight_decay"],
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=3, factor=0.5, verbose=False
+            optimizer, patience=3, factor=0.5
         )
         criterion = nn.CrossEntropyLoss()
 
-        best_loss = float("inf")
+        best_val_loss = float("inf")
         patience_counter = 0
 
-        self.net.train()
         for epoch in range(self.cfg["epochs"]):
-            epoch_loss = 0.0
-            for xb, yb in loader:
+            self.net.train()
+            for xb, yb in train_loader:
                 xb, yb = xb.to(self.device), yb.to(self.device)
                 optimizer.zero_grad()
                 loss = criterion(self.net(xb), yb)
                 loss.backward()
                 optimizer.step()
-                epoch_loss += loss.item()
 
-            avg_loss = epoch_loss / len(loader)
-            scheduler.step(avg_loss)
+            # Evaluate on validation split (no gradient)
+            self.net.eval()
+            with torch.no_grad():
+                val_loss = criterion(self.net(X_val_t), y_val_t).item()
 
-            if avg_loss < best_loss - 1e-4:
-                best_loss = avg_loss
+            scheduler.step(val_loss)
+
+            if val_loss < best_val_loss - 1e-4:
+                best_val_loss = val_loss
                 patience_counter = 0
                 self._best_state = {k: v.clone() for k, v in self.net.state_dict().items()}
             else:

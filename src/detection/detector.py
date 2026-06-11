@@ -28,13 +28,18 @@ ATTACK_EMOJI = {
 
 
 def _load_model(key: str, task: str, config_path: str):
+    if key == "ensemble":
+        from src.models import EnsembleIDS
+        return EnsembleIDS.from_saved(task, config_path)
     ext = ".pt" if key == "nn" else ".pkl"
     path = f"models/saved/{key}_{task}{ext}"
     if key == "rf":
         return RandomForestIDS.load(path)
     if key == "xgb":
         return XGBoostIDS.load(path)
-    return NeuralNetworkIDS.load(path, config_path)
+    if key == "nn":
+        return NeuralNetworkIDS.load(path, config_path)
+    raise ValueError(f"Unknown model key: {key!r}. Choose from rf, xgb, nn, ensemble.")
 
 
 def detect(
