@@ -61,7 +61,7 @@ st.sidebar.title("🛡️ AI-IDS")
 page = st.sidebar.radio(
     "Navigate",
     ["🏠 Overview", "📊 Dataset Explorer", "🤖 Model Performance",
-     "🔴 Live Detection", "📈 Attack Analysis"],
+     "🔴 Live Detection", "📈 Attack Analysis", "🧠 Explainability"],
 )
 
 CATEGORY_COLORS = {
@@ -475,12 +475,13 @@ elif page == "🔴 Live Detection":
                         use_container_width=True,
                     )
 
-        if run_btn:
+        # Fixed auto-refresh: run detection first, then schedule rerun
+        if run_btn or auto_refresh:
             run_detection()
 
         if auto_refresh:
-            time.sleep(3)
-            run_detection()
+            with st.spinner("Auto-refreshing in 3s..."):
+                time.sleep(3)
             st.rerun()
 
 
@@ -566,3 +567,85 @@ elif page == "📈 Attack Analysis":
                     nbins=20,
                 )
                 st.plotly_chart(fig5, use_container_width=True)
+
+
+elif page == "🧠 Explainability":
+    st.title("🧠 Model Explainability")
+    st.markdown(
+        "Understand **why** the model flags traffic as an attack "
+        "using SHAP values and permutation importance."
+    )
+
+    plot_dir = ROOT / "results" / "plots"
+    shap_plots = list(plot_dir.glob("shap_*.png")) + list(plot_dir.glob("perm_*.png"))
+
+    if shap_plots:
+        st.subheader("Existing Explanation Plots")
+        cols = st.columns(min(len(shap_plots), 2))
+        for i, p in enumerate(sorted(shap_plots)):
+            cols[i % 2].image(str(p), caption=p.stem.replace("_", " ").title(), use_container_width=True)
+    else:
+        st.info("No explanation plots yet. Generate them below.")
+
+    st.divider()
+    st.subheader("Generate SHAP / Permutation Importance")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        exp_model = st.selectbox("Model", ["Random Forest", "XGBoost", "Neural Network"])
+        exp_task = st.selectbox("Task", ["multiclass", "binary"])
+        top_n = st.slider("Top N features", 10, 40, 20)
+    with col2:
+        st.markdown(
+            """
+            **SHAP (RF / XGBoost)** — exact Shapley values via TreeExplainer.
+            **Permutation Importance (NN)** — measures accuracy drop per feature.
+
+            Both require trained models + dataset. Click **Generate** to create plots.
+            """
+        )
+
+    if st.button("⚡ Generate Explanations", type="primary"):
+        prep_path = ROOT / "models" / "saved" / "preprocessor.pkl"
+        if not prep_path.exists():
+            st.error("Preprocessor not found. Run `python main.py train` first.")
+        else:
+            from src.preprocessing import NSLKDDPreprocessor
+            prep = NSLKDDPreprocessor.load(str(prep_path))
+            _, test_df_raw = prep.load_raw()
+            labeled = prep.transform_labeled(test_df_raw)
+
+            key_map = {"Random Forest": "rf", "XGBoost": "xgb", "Neural Network": "nn"}
+            key = key_map[exp_model]
+            ext = ".pt" if key == "nn" else ".pkl"
+            model_path = ROOT / "models" / "saved" / f"{key}_{exp_task}{ext}"
+
+            if not model_path.exists():
+                st.error(f"Model not found: {model_path}. Train it first.")
+            else:
+                from src.evaluation.explainer import explain_rf_xgb, explain_nn
+
+                if exp_task == "binary":
+                    X_data = labeled["X_binary"]
+                else:
+                    X_data = labeled["X_multi"]
+
+                with st.spinner(f"Generating explanations for {exp_model}..."):
+                    if key == "rf":
+                        from src.models import RandomForestIDS
+                        model = RandomForestIDS.load(str(model_path))
+                        explain_rf_xgb(model, X_data, prep.feature_names,
+                                       title=f"RF {exp_task}", top_n=top_n)
+                    elif key == "xgb":
+                        from src.models import XGBoostIDS
+                        model = XGBoostIDS.load(str(model_path))
+                        explain_rf_xgb(model, X_data, prep.feature_names,
+                                       title=f"XGBoost {exp_task}", top_n=top_n)
+                    else:
+                        from src.models import NeuralNetworkIDS
+                        model = NeuralNetworkIDS.load(str(model_path))
+                        explain_nn(model, X_data[:200], X_data, prep.feature_names,
+                                   title=f"NN {exp_task}", top_n=top_n)
+
+                st.success("Explanations generated! Reload the page to view plots.")
+                st.rerun()

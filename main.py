@@ -34,6 +34,7 @@ examples:
     t = sub.add_parser("train", help="Train ML models")
     t.add_argument("--model", choices=["rf", "xgb", "nn", "all"], default="all")
     t.add_argument("--task", choices=["binary", "multiclass", "both"], default="both")
+    t.add_argument("--cv", action="store_true", help="Run K-fold cross-validation (RF+XGB only)")
 
     # evaluate
     e = sub.add_parser("evaluate", help="Evaluate trained models and generate plots")
@@ -62,7 +63,7 @@ examples:
 
     elif args.cmd == "train":
         from src.training.trainer import train_models
-        train_models(args.model, args.task)
+        train_models(args.model, args.task, run_cv=getattr(args, "cv", False))
 
     elif args.cmd == "evaluate":
         from src.evaluation.evaluator import evaluate_models

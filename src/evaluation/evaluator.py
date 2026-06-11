@@ -1,4 +1,4 @@
-"""Evaluate trained IDS models and generate reports."""
+"""Evaluate trained IDS models — no data leakage (uses transform, not fit_transform)."""
 
 from __future__ import annotations
 
@@ -9,8 +9,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 from sklearn.metrics import (
-    ConfusionMatrixDisplay,
-    RocCurveDisplay,
     classification_report,
     confusion_matrix,
     roc_auc_score,
@@ -40,34 +38,36 @@ def evaluate_models(
 ) -> dict:
     os.makedirs("results/plots", exist_ok=True)
 
+    # Load frozen preprocessor — do NOT re-fit, only transform
     prep = NSLKDDPreprocessor.load("models/saved/preprocessor.pkl")
-    train_df, test_df = prep.load_raw()
-    data = prep.fit_transform(train_df, test_df)
+    _, test_df_raw = prep.load_raw()
+
+    # Use transform_labeled: applies existing scaler + label encoders to test set
+    labeled = prep.transform_labeled(test_df_raw)
+
+    test_data = {
+        "binary": (labeled["X_binary"], labeled["y_binary"], labeled["binary_classes"]),
+        "multiclass": (labeled["X_multi"], labeled["y_multi"], labeled["multi_classes"]),
+    }
 
     keys = ["rf", "xgb", "nn"] if model_filter == "all" else [model_filter]
     all_results: dict = {}
 
-    for task, y_test, class_names in [
-        ("binary", data["y_test_binary"], data["binary_classes"]),
-        ("multiclass", data["y_test_multi"], data["multi_classes"]),
-    ]:
+    for task, (X_test, y_test, class_names) in test_data.items():
         for key in keys:
             model_path = f"models/saved/{key}_{task}.{'pt' if key == 'nn' else 'pkl'}"
             if not os.path.exists(model_path):
                 continue
 
             model = load_model(key, task, config_path)
-            metrics = model.evaluate(data["X_test"], y_test, list(class_names))
-            probs = model.predict_proba(data["X_test"])
+            metrics = model.evaluate(X_test, y_test, list(class_names))
+            probs = model.predict_proba(X_test)
 
-            # Confusion matrix
             _plot_confusion_matrix(
                 y_test, metrics["predictions"], class_names,
                 title=f"{model.name} — {task}",
                 save_path=f"results/plots/{key}_{task}_confusion.png",
             )
-
-            # ROC curves
             _plot_roc(
                 y_test, probs, class_names,
                 title=f"{model.name} — {task} ROC",
@@ -86,7 +86,6 @@ def evaluate_models(
             print(metrics["report"])
 
     with open("results/evaluation_results.json", "w") as f:
-        # report is not JSON-serializable as-is; store other fields
         serializable = {
             k: {m: v for m, v in d.items() if m != "report"}
             for k, d in all_results.items()
@@ -122,6 +121,8 @@ def _plot_roc(y_true, probs, class_names, title, save_path):
     else:
         y_bin = label_binarize(y_true, classes=list(range(n_classes)))
         for i, name in enumerate(class_names):
+            if y_bin[:, i].sum() == 0:
+                continue
             fpr, tpr, _ = roc_curve(y_bin[:, i], probs[:, i])
             auc = roc_auc_score(y_bin[:, i], probs[:, i])
             ax.plot(fpr, tpr, label=f"{name} (AUC={auc:.2f})")

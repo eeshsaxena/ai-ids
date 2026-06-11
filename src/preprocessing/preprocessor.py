@@ -139,7 +139,7 @@ class NSLKDDPreprocessor:
         }
 
     def transform(self, df: pd.DataFrame) -> np.ndarray:
-        """Transform unseen data using fitted scaler."""
+        """Transform unseen data using fitted scaler (no refitting)."""
         df = df.copy()
         if "difficulty" in df.columns:
             df = df.drop(columns=["difficulty"])
@@ -152,6 +152,35 @@ class NSLKDDPreprocessor:
                 X[col] = 0
         X = X[self.feature_names]
         return self.scaler.transform(X.values.astype(np.float32))
+
+    def transform_labeled(self, df: pd.DataFrame) -> dict:
+        """Transform a labeled DataFrame using already-fitted encoders/scaler.
+
+        Use this in evaluation — never re-fit on held-out data.
+        """
+        df = self._add_labels(df)
+        X = self.transform(df)
+
+        # Handle unseen label values gracefully
+        known_binary = set(self.le_binary.classes_)
+        known_multi = set(self.le_multi.classes_)
+
+        mask_b = df["binary_label"].isin(known_binary)
+        mask_m = df["attack_category"].isin(known_multi)
+
+        y_binary = self.le_binary.transform(df.loc[mask_b, "binary_label"])
+        y_multi = self.le_multi.transform(df.loc[mask_m, "attack_category"])
+
+        return {
+            "X": X,
+            "X_binary": X[mask_b.values],
+            "X_multi": X[mask_m.values],
+            "y_binary": y_binary,
+            "y_multi": y_multi,
+            "binary_classes": list(self.le_binary.classes_),
+            "multi_classes": list(self.le_multi.classes_),
+            "df": df,
+        }
 
     # ------------------------------------------------------------------
     # Persistence

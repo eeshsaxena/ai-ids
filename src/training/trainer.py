@@ -1,15 +1,15 @@
-"""Train all IDS models and persist results."""
+"""Train all IDS models, with optional K-fold cross-validation."""
 
 from __future__ import annotations
 
 import json
 import os
 import time
-from pathlib import Path
 
 import numpy as np
 from rich.console import Console
 from rich.table import Table
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 from src.models import NeuralNetworkIDS, RandomForestIDS, XGBoostIDS
 from src.preprocessing import NSLKDDPreprocessor
@@ -26,14 +26,21 @@ def train_models(
     model_filter: str = "all",
     task_filter: str = "both",
     config_path: str = "config/config.yaml",
+    run_cv: bool = False,
 ) -> dict:
-    """Train selected models on binary and/or multi-class tasks."""
+    """Train selected models on binary and/or multi-class tasks.
+
+    Args:
+        model_filter: 'rf', 'xgb', 'nn', or 'all'
+        task_filter: 'binary', 'multiclass', or 'both'
+        config_path: path to config YAML
+        run_cv: if True, run K-fold cross-validation on RF and XGBoost
+    """
     os.makedirs("models/saved", exist_ok=True)
     os.makedirs("results", exist_ok=True)
 
     console.rule("[bold cyan]AI Intrusion Detection System — Training")
 
-    # Load & preprocess data
     console.print("[yellow]Loading and preprocessing NSL-KDD dataset...[/yellow]")
     prep = NSLKDDPreprocessor(config_path)
     train_df, test_df = prep.load_raw()
@@ -42,6 +49,10 @@ def train_models(
 
     console.print(
         f"[green]Train: {data['X_train'].shape}  Test: {data['X_test'].shape}[/green]"
+    )
+    console.print(
+        f"Binary classes: {data['binary_classes']}  |  "
+        f"Multi classes: {data['multi_classes']}"
     )
 
     tasks = []
@@ -52,6 +63,11 @@ def train_models(
 
     model_keys = ["rf", "xgb", "nn"] if model_filter == "all" else [model_filter]
     all_results: dict = {}
+
+    import yaml
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    n_cv_folds = cfg.get("training", {}).get("cv_folds", 5)
 
     for task_name, y_train, y_test, class_names in tasks:
         n_classes = len(np.unique(y_train))
@@ -65,17 +81,34 @@ def train_models(
             elapsed = time.time() - t0
             console.print(f"  [dim]Trained in {elapsed:.1f}s[/dim]")
 
-            metrics = model.evaluate(data["X_test"], y_test, list(class_names))
+            # Use frozen preprocessor's transform_labeled for honest test evaluation
+            labeled = prep.transform_labeled(test_df)
+            if task_name == "binary":
+                X_eval, y_eval = labeled["X_binary"], labeled["y_binary"]
+            else:
+                X_eval, y_eval = labeled["X_multi"], labeled["y_multi"]
+
+            metrics = model.evaluate(X_eval, y_eval, list(class_names))
             _print_metrics(model.name, metrics)
 
-            save_path = _model_path(key, task_name)
-            if key == "nn":
-                model.save(save_path)
-            else:
-                model.save(save_path)
+            cv_score = None
+            if run_cv and key in ("rf", "xgb"):
+                console.print(f"  [yellow]Running {n_cv_folds}-fold CV...[/yellow]")
+                cv_scores = cross_val_score(
+                    model.model, data["X_train"], y_train,
+                    cv=StratifiedKFold(n_splits=n_cv_folds, shuffle=True, random_state=42),
+                    scoring="f1_weighted",
+                    n_jobs=-1,
+                )
+                cv_score = float(cv_scores.mean())
+                console.print(
+                    f"  [green]CV F1: {cv_score:.4f} ± {cv_scores.std():.4f}[/green]"
+                )
 
-            result_key = f"{key}_{task_name}"
-            all_results[result_key] = {
+            save_path = _model_path(key, task_name)
+            model.save(save_path)
+
+            result = {
                 "accuracy": metrics["accuracy"],
                 "precision": metrics["precision"],
                 "recall": metrics["recall"],
@@ -83,14 +116,17 @@ def train_models(
                 "train_time_s": elapsed,
                 "model_path": save_path,
             }
+            if cv_score is not None:
+                result["cv_f1"] = cv_score
 
-    # Persist summary
+            all_results[f"{key}_{task_name}"] = result
+
     results_path = "results/training_summary.json"
     with open(results_path, "w") as f:
         json.dump(all_results, f, indent=2)
 
     console.rule("[bold green]Training complete")
-    console.print(f"[green]Summary saved to {results_path}[/green]")
+    console.print(f"[green]Summary → {results_path}[/green]")
     return all_results
 
 
