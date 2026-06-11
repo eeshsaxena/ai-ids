@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+.Python
+*.egg
+dist/
+build/
+*.egg-info/
+venv/
+env/
+.venv/
+
+# Data files
+data/raw/*.txt
+data/raw/*.csv
+data/raw/*.gz
+
+# Processed data
+data/processed/*.csv
+data/processed/*.pkl
+
+# Saved models
+models/saved/*.joblib
+models/saved/*.pt
+models/saved/*.pkl
+models/saved/*.pth
+
+# Results
+results/*.json
+results/*.csv
+results/plots/*.png
+results/plots/*.pdf
+
+# Jupyter notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/
