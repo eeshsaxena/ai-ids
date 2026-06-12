@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [master, main]
 
+# Opt into Node.js 24 runners for all jobs (replaces deprecated Node 20 actions)
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     name: Run Tests (Python ${{ matrix.python-version }})
